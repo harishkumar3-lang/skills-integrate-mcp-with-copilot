@@ -5,6 +5,8 @@ A super simple FastAPI application that allows students to view and sign up
 for extracurricular activities at Mergington High School.
 """
 
+import json
+
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
@@ -19,8 +21,7 @@ current_dir = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=os.path.join(Path(__file__).parent,
           "static")), name="static")
 
-# In-memory activity database
-activities = {
+DEFAULT_ACTIVITIES = {
     "Chess Club": {
         "description": "Learn strategies and compete in chess tournaments",
         "schedule": "Fridays, 3:30 PM - 5:00 PM",
@@ -77,6 +78,36 @@ activities = {
     }
 }
 
+DATA_FILE = Path(os.getenv("ACTIVITIES_DB_PATH", Path(__file__).with_name("activities.json")))
+
+
+def load_activities():
+    """Load activities from a JSON file, falling back to the default dataset."""
+    if DATA_FILE.exists():
+        try:
+            with DATA_FILE.open("r", encoding="utf-8") as file:
+                loaded = json.load(file)
+            if isinstance(loaded, dict) and loaded:
+                return loaded
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    save_activities(DEFAULT_ACTIVITIES)
+    return DEFAULT_ACTIVITIES
+
+
+def save_activities(data=None):
+    """Persist the current activities dictionary to disk."""
+    payload = data if data is not None else activities
+    DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with DATA_FILE.open("w", encoding="utf-8") as file:
+        json.dump(payload, file, indent=2)
+        file.write("\n")
+    return payload
+
+
+activities = load_activities()
+
 
 @app.get("/")
 def root():
@@ -107,6 +138,7 @@ def signup_for_activity(activity_name: str, email: str):
 
     # Add student
     activity["participants"].append(email)
+    save_activities(activities)
     return {"message": f"Signed up {email} for {activity_name}"}
 
 
@@ -129,4 +161,5 @@ def unregister_from_activity(activity_name: str, email: str):
 
     # Remove student
     activity["participants"].remove(email)
+    save_activities(activities)
     return {"message": f"Unregistered {email} from {activity_name}"}
